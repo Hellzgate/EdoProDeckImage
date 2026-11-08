@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace WindBotDeckImage
+namespace EdoProDeckImage
 {
     public sealed class MainForm : Form
     {
@@ -44,7 +44,9 @@ namespace WindBotDeckImage
         private CardImageStore _store;
         private string _storePics;
         private bool _storeNet;
+        private string _storeDeck;
         private bool _loadingUi;
+        private bool _syncPreload;
 
         private const int StackWidth = 320;
 
@@ -70,7 +72,7 @@ namespace WindBotDeckImage
         // ══════════════════════════════════════════════════════
         private void BuildUi()
         {
-            Text = "WindBot 덱 이미지 생성기  v1.0";
+            Text = "EDOPro 덱 이미지 생성기  v" + Program.VersionText;
             StartPosition = FormStartPosition.CenterScreen;
             ClientSize = new Size(1240, 890);
             MinimumSize = new Size(1010, 700);
@@ -85,7 +87,7 @@ namespace WindBotDeckImage
 
             // ── 컨트롤 생성 ──
             TxtYdk = new TextBox { ReadOnly = true, BackColor = UiPanel, ForeColor = UiSub, BorderStyle = BorderStyle.FixedSingle };
-            TxtPics = new TextBox { BackColor = UiBox, ForeColor = UiFg, BorderStyle = BorderStyle.FixedSingle };
+            TxtPics = new TextBox { BackColor = UiBox, ForeColor = UiFg, BorderStyle = BorderStyle.FixedSingle, PlaceholderText = "EDOPro\\pics   (여러 폴더는 ; 로 구분)" };
             TxtTitle = new TextBox { PlaceholderText = "(비우면 덱 파일명)", BackColor = UiBox, ForeColor = UiFg, BorderStyle = BorderStyle.FixedSingle };
 
             NumCols = Num(4, 20, 10);
@@ -132,7 +134,7 @@ namespace WindBotDeckImage
             stack.Controls.Add(Field("덱 파일 (.ydk)", TxtYdk));
             stack.Controls.Add(Row(BtnOpen, BtnSave));
             stack.Controls.Add(Header("카드 이미지"));
-            stack.Controls.Add(Field("폴더 (EDOPro pics)", TxtPics));
+            stack.Controls.Add(Field("이미지 폴더 (; 로 여러 개)", TxtPics));
             stack.Controls.Add(Row(BtnPics, BtnPicsAuto));
             stack.Controls.Add(Header("이미지 설정"));
             stack.Controls.Add(Field("제목", TxtTitle));
@@ -358,6 +360,22 @@ namespace WindBotDeckImage
                 ChkFooter.Checked = _settings.ShowFooter;
                 ChkSide.Checked = _settings.ShowSide;
                 ChkNet.Checked = _settings.NetImages;
+
+                // 창 크기(있으면) — 최소 크기보다 작으면 무시
+                try
+                {
+                    if (!string.IsNullOrEmpty(_settings.WindowSize))
+                    {
+                        string[] p = _settings.WindowSize.Split('x');
+                        int w, h;
+                        if (p.Length == 2 && int.TryParse(p[0], out w) && int.TryParse(p[1], out h))
+                        {
+                            if (w >= MinimumSize.Width && h >= MinimumSize.Height && w <= 8000 && h <= 8000)
+                                ClientSize = new Size(w, h);
+                        }
+                    }
+                }
+                catch { }
             }
             finally { _loadingUi = false; }
         }
@@ -388,6 +406,8 @@ namespace WindBotDeckImage
                 _settings.ShowFooter = ChkFooter.Checked;
                 _settings.ShowSide = ChkSide.Checked;
                 _settings.NetImages = ChkNet.Checked;
+                if (WindowState == FormWindowState.Normal)
+                    _settings.WindowSize = ClientSize.Width + "x" + ClientSize.Height;
                 _settings.Save();
             }
             catch { }
@@ -428,16 +448,20 @@ namespace WindBotDeckImage
                 _deck = deck;
                 TxtYdk.Text = path;
 
-                if (!DeckImageRenderer.LooksLikePicsFolder(TxtPics.Text.Trim()))
+                var curPics = CardImageStore.SplitFolders(TxtPics.Text.Trim());
+                if (curPics.Count == 0 || !DeckImageRenderer.LooksLikePicsFolder(curPics[0]))
                 {
-                    string pics = DeckImageRenderer.GuessPicsFolder(path);
-                    if (pics.Length > 0) TxtPics.Text = pics;
+                    List<string> pics = DeckImageRenderer.GuessPicsFolders(path);
+                    if (pics.Count > 0) TxtPics.Text = string.Join(";", pics.ToArray());
                 }
 
-                Text = "WindBot 덱 이미지 생성기  v1.1  —  " + Path.GetFileName(path);
+                Text = "EDOPro 덱 이미지 생성기  v" + Program.VersionText + "  —  " + Path.GetFileName(path);
                 RefreshPreview();
                 StartPreload();
-                if (!silent) StLeft.Text = "덱 불러옴: " + Path.GetFileName(path);
+                StLeft.Text = silent
+                    ? string.Format("덱: {0}  (메인 {1} / 엑스트라 {2} / 사이드 {3})",
+                        Path.GetFileName(path), deck.Main.Count, deck.Extra.Count, deck.Side.Count)
+                    : "덱 불러옴: " + Path.GetFileName(path);
             }
             catch (Exception ex)
             {
@@ -452,7 +476,7 @@ namespace WindBotDeckImage
         // ══════════════════════════════════════════════════════
         private DeckImageOptions OptionsFromUi()
         {
-            return new DeckImageOptions
+            var o = new DeckImageOptions
             {
                 Title = TxtTitle.Text.Trim(),
                 PicsFolder = TxtPics.Text.Trim(),
@@ -466,19 +490,37 @@ namespace WindBotDeckImage
                 ShowFooter = ChkFooter.Checked,
                 ShowSide = ChkSide.Checked
             };
+            // 사용자가 고른 폴더가 우선, 자동 탐색 폴더는 뒤에 붙인다(없는 카드를 다른 설치에서 찾는다)
+            try
+            {
+                foreach (string p in DeckImageRenderer.GuessPicsFolders(_deck != null ? _deck.FilePath : null))
+                    o.ExtraPicsFolders.Add(p);
+            }
+            catch { }
+            return o;
         }
 
-        // 카드 이미지 캐시(폴더/인터넷 설정이 바뀌면 새로 만든다)
+        // 카드 이미지 캐시(폴더/인터넷/덱 설정이 바뀌면 새로 만든다)
         private CardImageStore Store()
         {
             string pics = TxtPics.Text.Trim();
             bool net = ChkNet.Checked;
-            if (_store == null || _storePics != pics || _storeNet != net)
+            string deckPath = _deck != null ? _deck.FilePath : "";
+            if (_store == null || _storePics != pics || _storeNet != net || _storeDeck != deckPath)
             {
                 CardImageStore old = _store;
-                _store = new CardImageStore(pics, net, System.IO.Path.Combine(AppSettings.Folder, "imgcache"));
+                var folders = new List<string>();
+                folders.AddRange(CardImageStore.SplitFolders(pics));
+                try { folders.AddRange(DeckImageRenderer.GuessPicsFolders(deckPath)); } catch { }
+
+                // cdb(alias·이름) 조회 — 커스텀/재록 카드 이미지 폴백에 필요
+                CdbLookup cdb = null;
+                try { cdb = CdbLookup.Create(folders, deckPath, AppSettings.Folder); } catch { }
+
+                _store = new CardImageStore(folders, net, System.IO.Path.Combine(AppSettings.Folder, "imgcache"), cdb);
                 _storePics = pics;
                 _storeNet = net;
+                _storeDeck = deckPath;
                 if (old != null) { try { old.Dispose(); } catch { } }
             }
             return _store;
@@ -496,10 +538,33 @@ namespace WindBotDeckImage
             foreach (int id in _deck.Extra) if (seen.Add(id)) ids.Add(id);
             foreach (int id in _deck.Side) if (seen.Add(id)) ids.Add(id);
 
+            // --screenshot 처럼 창 없이 그릴 때는 동기로 다 받아 두고 그린다
+            if (_syncPreload)
+            {
+                store.Preload(ids, null);
+                RefreshPreview();
+                return;
+            }
+
             int missing = 0;
             foreach (int id in ids) if (store.Get(id) == null) missing++;
 
-            if (missing == 0 || !store.HasNetwork)
+            if (missing > 0 && !store.HasNetwork)
+            {
+                // 인터넷은 꺼져 있지만 이름/alias 는 cdb 에서 읽어 둔다(빈 칸에 이름 표시)
+                if (store.HasCdb)
+                {
+                    Task.Run(delegate
+                    {
+                        store.Prefetch(ids);
+                        try { BeginInvoke((Action)RefreshPreview); } catch { }
+                    });
+                }
+                RefreshPreview();
+                return;
+            }
+
+            if (missing == 0)
             {
                 RefreshPreview();
                 return;
@@ -518,7 +583,10 @@ namespace WindBotDeckImage
                         BeginInvoke((Action)delegate
                         {
                             try { busy.Close(); busy.Dispose(); } catch { }
-                            StLeft.Text = string.Format("카드 이미지 준비 완료 (인터넷 {0}장)", store.FromNetwork);
+                            StLeft.Text = string.Format("카드 이미지 준비 완료 (인터넷 {0}장{1}{2})",
+                                store.FromNetwork,
+                                store.FromAlias > 0 ? string.Format(" · 원본ID {0}", store.FromAlias) : "",
+                                store.FromName > 0 ? string.Format(" · 이름검색 {0}", store.FromName) : "");
                             RefreshPreview();
                         });
                     }
@@ -570,9 +638,12 @@ namespace WindBotDeckImage
                 return;
             }
             StMid.Text = st.Summary;
-            StRight.Text = DeckImageRenderer.LooksLikePicsFolder(TxtPics.Text.Trim())
-                ? "이미지 폴더 OK"
-                : "⚠ 카드 이미지 폴더를 확인하세요";
+            CardImageStore s = _store;
+            int folders = s != null ? s.FolderCount : 0;
+            StRight.Text = string.Format("이미지 폴더 {0}개 · cdb {1}개{2}",
+                folders,
+                s != null ? s.CdbCount : 0,
+                st.Missing.Count > 0 ? "  ⚠ 이미지 없음 " + st.Missing.Count : "");
         }
 
         // ══════════════════════════════════════════════════════
@@ -609,14 +680,14 @@ namespace WindBotDeckImage
 
         private void OnAutoPicsFolder()
         {
-            string pics = DeckImageRenderer.GuessPicsFolder(_deck != null ? _deck.FilePath : null);
-            if (pics.Length == 0)
+            List<string> found = DeckImageRenderer.GuessPicsFolders(_deck != null ? _deck.FilePath : null);
+            if (found.Count == 0)
             {
                 MessageBox.Show(this, "카드 이미지 폴더를 찾지 못했습니다.\r\nEDOPro 의 pics 폴더를 직접 선택해 주세요.",
                     "자동 탐색", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
-            TxtPics.Text = pics;
+            TxtPics.Text = string.Join(";", found.ToArray());
             RefreshPreview();
         }
 
@@ -692,12 +763,15 @@ namespace WindBotDeckImage
 
                     bool jpeg = CmbFormat.SelectedIndex == 1;
                     string pics = TxtPics.Text.Trim();
-                    if (!DeckImageRenderer.LooksLikePicsFolder(pics))
+                    // ';' 로 여러 폴더를 적을 수 있으므로 첫 폴더가 유효한지만 본다
+                    var picsList = CardImageStore.SplitFolders(pics);
+                    if (picsList.Count == 0 || !DeckImageRenderer.LooksLikePicsFolder(picsList[0]))
                         pics = DeckImageRenderer.GuessPicsFolder(files[0]);
 
                     int ok = 0, fail = 0;
                     Cursor prev = Cursor;
                     Cursor = Cursors.WaitCursor;
+                    CardImageStore store = Store();
                     try
                     {
                         foreach (string f in files)
@@ -707,12 +781,21 @@ namespace WindBotDeckImage
                                 DeckImageOptions o = OptionsFromUi();
                                 o.PicsFolder = pics;
                                 DeckList deck = DeckImageRenderer.ParseYdk(f);
+                                var ids = new List<int>();
+                                var seen = new HashSet<int>();
+                                foreach (int id in deck.Main) if (seen.Add(id)) ids.Add(id);
+                                foreach (int id in deck.Extra) if (seen.Add(id)) ids.Add(id);
+                                foreach (int id in deck.Side) if (seen.Add(id)) ids.Add(id);
+                                store.Preload(ids, null);
+
                                 RenderStats st;
                                 string outFile = Path.Combine(dst.SelectedPath,
                                     Path.GetFileNameWithoutExtension(f) + (jpeg ? ".jpg" : ".png"));
-                                using (Bitmap bmp = DeckImageRenderer.Render(deck, o, out st))
+                                using (Bitmap bmp = DeckImageRenderer.Render(deck, o, store, out st))
                                     DeckImageRenderer.Save(bmp, outFile, jpeg);
                                 ok++;
+                                StLeft.Text = string.Format("일괄 변환… {0} / {1}", ok + fail, files.Length);
+                                Application.DoEvents();
                             }
                             catch { fail++; }
                         }
@@ -733,8 +816,14 @@ namespace WindBotDeckImage
             if (e.Data == null || !e.Data.GetDataPresent(DataFormats.FileDrop)) return;
             string[] files = e.Data.GetData(DataFormats.FileDrop) as string[];
             if (files == null || files.Length == 0) return;
-            if (files[0].EndsWith(".ydk", StringComparison.OrdinalIgnoreCase) || Directory.Exists(files[0]))
-                e.Effect = DragDropEffects.Copy;
+            foreach (string f in files)
+            {
+                if (Directory.Exists(f) || f.EndsWith(".ydk", StringComparison.OrdinalIgnoreCase))
+                {
+                    e.Effect = DragDropEffects.Copy;
+                    return;
+                }
+            }
         }
 
         private void OnFormDragDrop(object sender, DragEventArgs e)
@@ -742,18 +831,90 @@ namespace WindBotDeckImage
             if (e.Data == null) return;
             string[] files = e.Data.GetData(DataFormats.FileDrop) as string[];
             if (files == null || files.Length == 0) return;
-            string f = files[0];
 
-            if (Directory.Exists(f))
+            var decks = new List<string>();
+            string dir = null;
+            foreach (string f in files)
             {
-                string pics = Path.Combine(f, "pics");
-                if (DeckImageRenderer.LooksLikePicsFolder(pics)) { TxtPics.Text = pics; RefreshPreview(); return; }
-                string[] ydk;
-                try { ydk = Directory.GetFiles(f, "*.ydk"); } catch { return; }
-                if (ydk.Length > 0) { Array.Sort(ydk, StringComparer.OrdinalIgnoreCase); LoadDeck(ydk[0], false); }
+                if (Directory.Exists(f)) { if (dir == null) dir = f; }
+                else if (f.EndsWith(".ydk", StringComparison.OrdinalIgnoreCase)) decks.Add(f);
+            }
+
+            // 여러 덱 파일 → 그 폴더의 deck-images 로 일괄 변환
+            if (decks.Count >= 2)
+            {
+                StartBatchFromFiles(decks, Path.GetDirectoryName(decks[0]));
                 return;
             }
-            if (f.EndsWith(".ydk", StringComparison.OrdinalIgnoreCase)) LoadDeck(f, false);
+            if (decks.Count == 1) { LoadDeck(decks[0], false); return; }
+
+            if (dir != null)
+            {
+                string pics = Path.Combine(dir, "pics");
+                if (DeckImageRenderer.LooksLikePicsFolder(pics)) { TxtPics.Text = pics; RefreshPreview(); return; }
+                string[] ydk;
+                try { ydk = Directory.GetFiles(dir, "*.ydk"); } catch { return; }
+                if (ydk.Length > 0) { Array.Sort(ydk, StringComparer.OrdinalIgnoreCase); LoadDeck(ydk[0], false); }
+            }
+        }
+
+        /// <summary>끌어놓은 여러 .ydk 를 &lt;폴더&gt;\deck-images 로 일괄 변환(진행률 창).</summary>
+        private void StartBatchFromFiles(List<string> files, string baseDir)
+        {
+            if (files == null || files.Count == 0) return;
+            if (string.IsNullOrEmpty(baseDir)) baseDir = AppSettings.Folder;
+            string outDir = Path.Combine(baseDir, "deck-images");
+            try { Directory.CreateDirectory(outDir); } catch { }
+
+            bool jpeg = CmbFormat.SelectedIndex == 1;
+            DeckImageOptions opt = OptionsFromUi();
+            CardImageStore store = Store();     // UI 스레드에서 준비(설정 반영)
+
+            var busy = new BusyForm("일괄 변환", string.Format("0 / {0}", files.Count), files.Count);
+            busy.Show(this);
+
+            Task.Run(delegate
+            {
+                int ok = 0, fail = 0, done = 0;
+                foreach (string f in files)
+                {
+                    try
+                    {
+                        DeckList deck = DeckImageRenderer.ParseYdk(f);
+                        var ids = new List<int>();
+                        var seen = new HashSet<int>();
+                        foreach (int id in deck.Main) if (seen.Add(id)) ids.Add(id);
+                        foreach (int id in deck.Extra) if (seen.Add(id)) ids.Add(id);
+                        foreach (int id in deck.Side) if (seen.Add(id)) ids.Add(id);
+                        store.Preload(ids, null);
+
+                        DeckImageOptions o = opt.Clone();
+                        RenderStats st;
+                        string outFile = Path.Combine(outDir,
+                            Path.GetFileNameWithoutExtension(f) + (jpeg ? ".jpg" : ".png"));
+                        using (Bitmap bmp = DeckImageRenderer.Render(deck, o, store, out st))
+                            DeckImageRenderer.Save(bmp, outFile, jpeg);
+                        ok++;
+                    }
+                    catch { fail++; }
+                    done++;
+                    busy.SetMessage(string.Format("일괄 변환…  {0} / {1}", done, files.Count));
+                    busy.Update(done, files.Count);
+                }
+
+                try
+                {
+                    BeginInvoke((Action)delegate
+                    {
+                        try { busy.Close(); busy.Dispose(); } catch { }
+                        StLeft.Text = string.Format("끌어놓기 일괄 변환: 성공 {0} / 실패 {1} → {2}", ok, fail, outDir);
+                        MessageBox.Show(this,
+                            string.Format("완료했습니다.\r\n\r\n성공 {0}건 / 실패 {1}건\r\n{2}", ok, fail, outDir),
+                            "일괄 변환", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    });
+                }
+                catch { }
+            });
         }
 
         // ══════════════════════════════════════════════════════
@@ -762,7 +923,9 @@ namespace WindBotDeckImage
         /// <summary>--screenshot: 덱을 읽어 미리보기까지 그린다(저장/설정 변경 없음).</summary>
         public void LoadDeckForShot(string path)
         {
-            LoadDeck(path, silent: true);
+            _syncPreload = true;
+            try { LoadDeck(path, silent: true); }
+            finally { _syncPreload = false; }
             RefreshPreview();
         }
 
@@ -772,7 +935,8 @@ namespace WindBotDeckImage
             CountControls(this, ref n);
 
             var sb = new StringBuilder();
-            sb.AppendFormat("controls={0} size={1}x{2}", n, ClientSize.Width, ClientSize.Height);
+            sb.AppendFormat("version={0}", Program.VersionText);
+            sb.AppendFormat(" controls={0} size={1}x{2}", n, ClientSize.Width, ClientSize.Height);
             sb.AppendFormat(" theme={0}", CmbTheme.Count);
             sb.AppendFormat(" format={0}", CmbFormat.Count);
             sb.AppendFormat(" cols={0}", NumCols.Value);
@@ -805,8 +969,28 @@ namespace WindBotDeckImage
 
             sb.AppendFormat(" deck={0}", _deck != null ? "OK" : "none");
             sb.AppendFormat(" preview={0}", _preview != null ? "OK" : "none");
-            sb.AppendFormat(" pics={0}", DeckImageRenderer.LooksLikePicsFolder(TxtPics.Text.Trim()) ? "OK" : "none");
+            var shownPics = CardImageStore.SplitFolders(TxtPics.Text.Trim());
+            sb.AppendFormat(" pics={0}", (shownPics.Count > 0 && DeckImageRenderer.LooksLikePicsFolder(shownPics[0])) ? "OK" : "none");
             sb.AppendFormat(" net={0}", ChkNet.Checked ? "on" : "off");
+
+            // 여러 폴더(pics) · cdb 조회 · 이름 폴백
+            try
+            {
+                var dirs = OptionsFromUi().ResolvePicsFolders();
+                sb.AppendFormat(" picsDirs={0}", dirs.Count);
+                using (var cdb = CdbLookup.Create(dirs, _deck != null ? _deck.FilePath : null, AppSettings.Folder))
+                {
+                    sb.AppendFormat(" cdb={0}", cdb.CdbCount);
+                    // Deattach 대상 예시 카드의 이름이 읽히면 이름 폴백 OK
+                    cdb.Prefetch(new[] { 14558127, 101403001 });
+                    string nm = cdb.DisplayName(14558127);
+                    sb.AppendFormat(" cdbName={0}", string.IsNullOrEmpty(nm) ? "none" : "OK");
+                }
+            }
+            catch (Exception ex)
+            {
+                sb.Append(" cdb=FAIL(" + ex.GetType().Name + ")");
+            }
             return sb.ToString();
         }
 

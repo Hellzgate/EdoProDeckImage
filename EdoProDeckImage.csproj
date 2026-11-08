@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>EdoProDeckImage</AssemblyName>
+    <RootNamespace>EdoProDeckImage</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>1.3.0</Version>
+    <FileVersion>1.3.0.0</FileVersion>
+    <AssemblyTitle>EDOPro 덱 이미지 생성기</AssemblyTitle>
+    <Product>EDOPro 덱 이미지 생성기</Product>
+    <SatelliteResourceLanguages>ko</SatelliteResourceLanguages>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- cdb(카드 DB) 에서 alias(원본 ID)·이름을 읽어 이미지 폴백에 쓴다 -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- EDOPro 가 없는 PC 에서도 이름/원본ID 폴백이 되도록 기본 카드 DB 를 내장 -->
+    <None Update="carddata\*.cdb">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- exe 옆에 사용 설명서도 함께 배포 -->
+    <None Include="README.txt" Condition="Exists('README.txt')" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

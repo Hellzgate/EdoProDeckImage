@@ -6,7 +6,7 @@ using System.IO;
 using System.Text;
 using System.Windows.Forms;
 
-namespace WindBotDeckImage
+namespace EdoProDeckImage
 {
     internal static class Program
     {
@@ -56,6 +56,12 @@ namespace WindBotDeckImage
                 return;
             }
 
+            if (args.Length > 0 && (args[0] == "--version" || args[0] == "-v"))
+            {
+                Console.WriteLine("EdoProDeckImage " + VersionText);
+                return;
+            }
+
             try
             {
                 ApplicationConfiguration.Initialize();
@@ -68,25 +74,42 @@ namespace WindBotDeckImage
                 LogCrash(ex);
                 MessageBox.Show("시작 중 오류가 발생했습니다.\r\n\r\n" + ex.Message +
                     "\r\n\r\n로그: " + Path.Combine(AppSettings.Folder, "startup-error.txt"),
-                    "WindBot 덱 이미지 생성기", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    "EDOPro 덱 이미지 생성기", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         // ── CLI ──────────────────────────────────────────────────
+        public static string VersionText
+        {
+            get
+            {
+                try
+                {
+                    var v = System.Reflection.Assembly.GetExecutingAssembly().GetName().Version;
+                    if (v != null) return v.Major + "." + v.Minor + "." + v.Build;
+                }
+                catch { }
+                return "1.3.0";
+            }
+        }
+
         private static string UsageText()
         {
             return string.Join("\r\n", new[]
             {
-                "WindBot 덱 이미지 생성기 v1.0",
+                "EDOPro 덱 이미지 생성기 v" + VersionText,
                 "",
                 "사용법:",
-                "  WindBotDeckImage.exe                       (창 열기)",
-                "  WindBotDeckImage.exe --ydk <파일.ydk> --out <결과.png> [옵션]",
-                "  WindBotDeckImage.exe --batch <폴더> --out <출력폴더> [옵션]",
-                "  WindBotDeckImage.exe --uicheck             (창 없이 폼 생성 검사)",
+                "  EdoProDeckImage.exe                       (창 열기)",
+                "  EdoProDeckImage.exe --ydk <파일.ydk> [--out <결과.png>] [옵션]",
+                "  EdoProDeckImage.exe --batch <폴더> [--out <출력폴더>] [옵션]",
+                "  EdoProDeckImage.exe --uicheck             (창 없이 폼 생성 검사)",
+                "  EdoProDeckImage.exe --version",
                 "",
                 "옵션:",
-                "  --pics <폴더>     카드 이미지 폴더 (기본 자동 탐색)",
+                "  --out <경로>      결과 파일/폴더. 생략하면 .ydk 옆에 저장",
+                "                    (--batch 는 <폴더>\\deck-images)",
+                "  --pics <폴더>     카드 이미지 폴더 (기본 자동 탐색, ';' 로 여러 개)",
                 "  --cols <N>        한 줄 카드 수 (기본 10)",
                 "  --cardw <N>       카드 폭 px (기본 110)",
                 "  --gap <N>         카드 간격 px (기본 5)",
@@ -98,6 +121,10 @@ namespace WindBotDeckImage
                 "  --no-title / --no-footer / --no-side",
                 "  --jpg             JPG 로 저장 (기본 PNG)",
                 "  --no-net          없는 카드를 인터넷에서 받지 않음",
+                "  --no-cdb          cdb(alias/이름) 기반 폴백을 쓰지 않음",
+                "",
+                "이미지 결정 순서: 로컬 pics → 캐시 → 같은 ID → cdb alias(원본 ID)",
+                "                → cdb 영문 이름 검색 → Yugipedia → 카드명 표시",
                 "",
                 "종료 코드: 0 성공 / 1 실패"
             });
@@ -109,6 +136,7 @@ namespace WindBotDeckImage
             string ydk = null, batch = null, outPath = null;
             bool jpeg = false;
             bool noNet = false;
+            bool noCdb = false;
             string picsExplicit = null;
 
             for (int i = 0; i < args.Length; i++)
@@ -134,20 +162,18 @@ namespace WindBotDeckImage
                     case "--no-side": opt.ShowSide = false; break;
                     case "--jpg": jpeg = true; break;
                     case "--no-net": noNet = true; break;
+                    case "--no-cdb": noCdb = true; break;
                 }
             }
 
             try
             {
-                if (string.IsNullOrEmpty(outPath))
-                {
-                    Console.WriteLine("ERROR: --out 이 필요합니다.");
-                    return 1;
-                }
-
                 if (!string.IsNullOrEmpty(batch))
                 {
-                    return RunBatch(batch, outPath, opt, picsExplicit, jpeg);
+                    string outFolder = string.IsNullOrEmpty(outPath)
+                        ? Path.Combine(Path.GetFullPath(batch), "deck-images")
+                        : outPath;
+                    return RunBatch(batch, outFolder, opt, picsExplicit, jpeg, noNet, noCdb);
                 }
 
                 if (string.IsNullOrEmpty(ydk) || !File.Exists(ydk))
@@ -156,12 +182,29 @@ namespace WindBotDeckImage
                     return 1;
                 }
 
-                opt.PicsFolder = string.IsNullOrEmpty(picsExplicit)
-                    ? DeckImageRenderer.GuessPicsFolder(ydk)
-                    : picsExplicit;
+                if (string.IsNullOrEmpty(outPath))
+                {
+                    string dir = Path.GetDirectoryName(Path.GetFullPath(ydk));
+                    if (string.IsNullOrEmpty(dir)) dir = ".";
+                    outPath = Path.Combine(dir, Path.GetFileNameWithoutExtension(ydk) + (jpeg ? ".jpg" : ".png"));
+                }
+
+                List<string> folders = new List<string>();
+                if (!string.IsNullOrEmpty(picsExplicit))
+                    folders.AddRange(CardImageStore.SplitFolders(picsExplicit));
+                else
+                    folders.AddRange(DeckImageRenderer.GuessPicsFolders(ydk));
+                opt.PicsFolder = string.Join(";", folders.ToArray());
+                opt.ExtraPicsFolders = folders;
 
                 DeckList deck = DeckImageRenderer.ParseYdk(ydk);
-                using (var store = new CardImageStore(opt.PicsFolder, !noNet, Path.Combine(AppSettings.Folder, "imgcache")))
+                CdbLookup cdb = null;
+                if (!noCdb)
+                {
+                    try { cdb = CdbLookup.Create(folders, ydk, AppSettings.Folder); } catch { }
+                }
+
+                using (var store = new CardImageStore(folders, !noNet, Path.Combine(AppSettings.Folder, "imgcache"), cdb))
                 {
                     var ids = new List<int>();
                     var seen = new HashSet<int>();
@@ -177,13 +220,18 @@ namespace WindBotDeckImage
                         Console.WriteLine("OUT " + outPath);
                         Console.WriteLine("  " + st.Summary + " · 배치 " + st.Placed + "장"
                             + (store.FromNetwork > 0 ? string.Format(" · 인터넷에서 {0}장 받음", store.FromNetwork) : "")
-                            + (store.FromCache > 0 ? string.Format(" · 캐시 {0}장", store.FromCache) : ""));
-                    if (st.Missing.Count > 0)
-                        Console.WriteLine("  이미지 없음: " + string.Join(",", st.Missing.ConvertAll(x => x.ToString()).ToArray()));
+                            + (store.FromCache > 0 ? string.Format(" · 캐시 {0}장", store.FromCache) : "")
+                            + (store.FromAlias > 0 ? string.Format(" · 원본ID {0}", store.FromAlias) : "")
+                            + (store.FromName > 0 ? string.Format(" · 이름검색 {0}", store.FromName) : "")
+                            + (store.FromYugipedia > 0 ? string.Format(" · Yugipedia {0}", store.FromYugipedia) : ""));
+                        if (st.Missing.Count > 0)
+                            Console.WriteLine("  이미지 없음: " + string.Join(",", st.Missing.ConvertAll(x => x.ToString()).ToArray()));
+                    }
                 }
-                }
-                if (string.IsNullOrEmpty(opt.PicsFolder))
+                if (folders.Count == 0)
                     Console.WriteLine("  ⚠ 카드 이미지 폴더를 찾지 못했습니다(--pics 로 지정).");
+                else
+                    Console.WriteLine("  이미지 폴더 " + folders.Count + "개 · cdb " + (noCdb ? 0 : 1) + "회 조회 준비");
                 return 0;
             }
             catch (Exception ex)
@@ -194,7 +242,8 @@ namespace WindBotDeckImage
             }
         }
 
-        private static int RunBatch(string folder, string outFolder, DeckImageOptions opt, string picsExplicit, bool jpeg)
+        private static int RunBatch(string folder, string outFolder, DeckImageOptions opt, string picsExplicit, bool jpeg,
+            bool noNet, bool noCdb)
         {
             if (!Directory.Exists(folder))
             {
@@ -214,33 +263,57 @@ namespace WindBotDeckImage
                 return 1;
             }
 
-            string pics = string.IsNullOrEmpty(picsExplicit) ? DeckImageRenderer.GuessPicsFolder(files[0]) : picsExplicit;
-            int ok = 0, fail = 0;
-            foreach (string f in files)
+            List<string> pics = new List<string>();
+            if (!string.IsNullOrEmpty(picsExplicit))
+                pics.AddRange(CardImageStore.SplitFolders(picsExplicit));
+            else
+                pics.AddRange(DeckImageRenderer.GuessPicsFolders(files[0]));
+
+            CdbLookup cdb = null;
+            if (!noCdb)
             {
-                try
+                try { cdb = CdbLookup.Create(pics, files[0], AppSettings.Folder); } catch { }
+            }
+
+            int ok = 0, fail = 0;
+            using (var store = new CardImageStore(pics, !noNet, Path.Combine(AppSettings.Folder, "imgcache"), cdb))
+            {
+                foreach (string f in files)
                 {
-                    DeckImageOptions o = opt.Clone();
-                    o.PicsFolder = pics;
-                    DeckList deck = DeckImageRenderer.ParseYdk(f);
-                    RenderStats st;
-                    string outFile = Path.Combine(outFolder,
-                        Path.GetFileNameWithoutExtension(f) + (jpeg ? ".jpg" : ".png"));
-                    using (Bitmap bmp = DeckImageRenderer.Render(deck, o, out st))
+                    try
                     {
-                        DeckImageRenderer.Save(bmp, outFile, jpeg);
+                        DeckImageOptions o = opt.Clone();
+                        o.PicsFolder = string.Join(";", pics.ToArray());
+                        o.ExtraPicsFolders = pics;
+                        DeckList deck = DeckImageRenderer.ParseYdk(f);
+
+                        var ids = new List<int>();
+                        var seen = new HashSet<int>();
+                        foreach (int id in deck.Main) if (seen.Add(id)) ids.Add(id);
+                        foreach (int id in deck.Extra) if (seen.Add(id)) ids.Add(id);
+                        foreach (int id in deck.Side) if (seen.Add(id)) ids.Add(id);
+                        store.Preload(ids, null);
+
+                        RenderStats st;
+                        string outFile = Path.Combine(outFolder,
+                            Path.GetFileNameWithoutExtension(f) + (jpeg ? ".jpg" : ".png"));
+                        using (Bitmap bmp = DeckImageRenderer.Render(deck, o, store, out st))
+                        {
+                            DeckImageRenderer.Save(bmp, outFile, jpeg);
+                        }
+                        ok++;
+                        Console.WriteLine("  OK   " + Path.GetFileName(outFile) + "  (" + deck.Total + "장"
+                            + (st.Missing.Count > 0 ? string.Format(" · 이미지 없음 {0}", st.Missing.Count) : "") + ")");
                     }
-                    ok++;
-                    Console.WriteLine("  OK   " + Path.GetFileName(outFile) + "  (" + deck.Total + "장)");
-                }
-                catch (Exception ex)
-                {
-                    fail++;
-                    Console.WriteLine("  FAIL " + Path.GetFileName(f) + " : " + ex.Message);
+                    catch (Exception ex)
+                    {
+                        fail++;
+                        Console.WriteLine("  FAIL " + Path.GetFileName(f) + " : " + ex.Message);
+                    }
                 }
             }
-            Console.WriteLine(string.Format("BATCH OK {0} / 실패 {1} · 이미지 폴더: {2}",
-                ok, fail, string.IsNullOrEmpty(pics) ? "(없음)" : pics));
+            Console.WriteLine(string.Format("BATCH OK {0} / 실패 {1} · 이미지 폴더 {2}개 · cdb {3}개",
+                ok, fail, pics.Count, cdb == null ? 0 : cdb.CdbCount));
             return fail == 0 ? 0 : 1;
         }
 

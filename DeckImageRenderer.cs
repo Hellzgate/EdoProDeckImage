@@ -7,7 +7,7 @@ using System.Drawing.Text;
 using System.IO;
 using System.Text;
 
-namespace WindBotDeckImage
+namespace EdoProDeckImage
 {
     // ──────────────────────────────────────────────────────────────
     //  덱(.ydk) 파싱
@@ -45,9 +45,40 @@ namespace WindBotDeckImage
         public bool ShowSide { get; set; } = true;
         public string FooterNote { get; set; } = "";
 
+        /// <summary>추가 이미지 폴더(자동 탐색 결과 등). PicsFolder 와 함께 사용한다.</summary>
+        public List<string> ExtraPicsFolders = new List<string>();
+
         public DeckImageOptions Clone()
         {
-            return (DeckImageOptions)this.MemberwiseClone();
+            var c = (DeckImageOptions)this.MemberwiseClone();
+            c.ExtraPicsFolders = new List<string>(ExtraPicsFolders);
+            return c;
+        }
+
+        /// <summary>
+        /// 실제로 사용할 pics 폴더 목록 — PicsFolder 는 `;` 로 여러 개를 적을 수 있고,
+        /// ExtraPicsFolders(자동 탐색)가 뒤에 붙는다. 존재하는 폴더만, 중복 제거.
+        /// </summary>
+        public List<string> ResolvePicsFolders()
+        {
+            var list = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string part in CardImageStore.SplitFolders(PicsFolder))
+            {
+                string full;
+                try { full = Path.GetFullPath(part); } catch { continue; }
+                if (!Directory.Exists(full)) continue;
+                if (seen.Add(full)) list.Add(full);
+            }
+            foreach (string part in ExtraPicsFolders)
+            {
+                if (string.IsNullOrWhiteSpace(part)) continue;
+                string full;
+                try { full = Path.GetFullPath(part); } catch { continue; }
+                if (!Directory.Exists(full)) continue;
+                if (seen.Add(full)) list.Add(full);
+            }
+            return list;
         }
     }
 
@@ -174,14 +205,33 @@ namespace WindBotDeckImage
 
         public static string GuessPicsFolder(string ydkPath)
         {
+            List<string> all = GuessPicsFolders(ydkPath);
+            return all.Count > 0 ? all[0] : "";
+        }
+
+        /// <summary>
+        /// 이미지 폴더 자동 탐색 — **여러 개**를 찾는다(앞이 우선).
+        ///   ① .ydk 위로 5단계의 pics
+        ///   ② exe 옆/위로 3단계의 pics
+        ///   ③ 흔한 EDOPro 설치 경로
+        ///   ④ EDOPro 의 repositories\*\pics (커스텀 카드 배포본)
+        /// </summary>
+        public static List<string> GuessPicsFolders(string ydkPath)
+        {
             var candidates = new List<string>();
-            if (!string.IsNullOrEmpty(ydkPath))
+            Action<string> add = delegate (string dir)
             {
-                string dir = null;
-                try { dir = Path.GetDirectoryName(Path.GetFullPath(ydkPath)); } catch { }
-                for (int i = 0; i < 5 && !string.IsNullOrEmpty(dir); i++)
+                if (string.IsNullOrEmpty(dir)) return;
+                foreach (string c in candidates)
+                    if (string.Equals(c, dir, StringComparison.OrdinalIgnoreCase)) return;
+                candidates.Add(dir);
+            };
+            Action<string, int> addChain = delegate (string start, int depth)
+            {
+                string dir = start;
+                for (int i = 0; i < depth && !string.IsNullOrEmpty(dir); i++)
                 {
-                    candidates.Add(Path.Combine(dir, "pics"));
+                    add(Path.Combine(dir, "pics"));
                     try
                     {
                         string parent = Path.GetDirectoryName(dir);
@@ -190,16 +240,36 @@ namespace WindBotDeckImage
                     }
                     catch { break; }
                 }
-            }
-            candidates.Add(@"D:\edopro\pics");
-            candidates.Add(@"C:\ProjectIgnis\pics");
-            candidates.Add(@"D:\ProjectIgnis\pics");
-            candidates.Add(@"C:\edopro\pics");
-            candidates.Add(@"D:\EDOPro\pics");
+            };
 
+            if (!string.IsNullOrEmpty(ydkPath))
+            {
+                string dir = null;
+                try { dir = Path.GetDirectoryName(Path.GetFullPath(ydkPath)); } catch { }
+                addChain(dir, 5);
+            }
+            try { addChain(AppDomain.CurrentDomain.BaseDirectory, 4); } catch { }
+
+            string[] known = { @"D:\edopro", @"C:\ProjectIgnis", @"D:\ProjectIgnis", @"C:\edopro", @"D:\EDOPro" };
+            foreach (string k in known) add(Path.Combine(k, "pics"));
+
+            // repositories\<repo>\pics (예: 커스텀 카드 배포본)
+            foreach (string k in known)
+            {
+                string repos = Path.Combine(k, "repositories");
+                if (!Directory.Exists(repos)) continue;
+                try
+                {
+                    foreach (string sub in Directory.GetDirectories(repos))
+                        add(Path.Combine(sub, "pics"));
+                }
+                catch { }
+            }
+
+            var result = new List<string>();
             foreach (string c in candidates)
-                if (LooksLikePicsFolder(c)) return c;
-            return "";
+                if (LooksLikePicsFolder(c)) result.Add(c);
+            return result;
         }
 
         // ── 렌더 ─────────────────────────────────────────────────
@@ -226,6 +296,7 @@ namespace WindBotDeckImage
             int pad = Math.Max(0, Math.Min(120, o.Padding));
 
             ThemePalette th = ThemePalette.Get(o.Theme);
+            List<string> picsDirs = o.ResolvePicsFolders();
 
             float titlePt = Math.Max(9f, cardW / 5.0f);
             float hdrPt = Math.Max(8.5f, cardW / 6.0f);
@@ -331,7 +402,7 @@ namespace WindBotDeckImage
                                 {
                                     int cx = pad + col * (cardW + gap);
                                     int cy = y + row * (cardH + gap);
-                                    Image img = store != null ? store.Get(slot.Id) : LoadCardImage(slot.Id, o.PicsFolder, imgCache);
+                                    Image img = store != null ? store.Get(slot.Id) : LoadCardImage(slot.Id, picsDirs, imgCache);
                                     if (img != null)
                                     {
                                         g.DrawImage(img, cx, cy, cardW, cardH);
@@ -339,10 +410,26 @@ namespace WindBotDeckImage
                                     else
                                     {
                                         g.FillRectangle(missBrush, cx, cy, cardW, cardH);
-                                        string miss = "?" + slot.Id;
-                                        SizeF ms = g.MeasureString(miss, fMiss);
-                                        g.DrawString(miss, fMiss, subBrush,
-                                            cx + (cardW - ms.Width) / 2, cy + (cardH - ms.Height) / 2);
+                                        string missLabel = "?" + slot.Id;
+                                        string name = store != null ? store.NameOf(slot.Id) : "";
+                                        if (!string.IsNullOrEmpty(name))
+                                        {
+                                            // 이름을 알면 ID 대신 이름을(2줄까지) 쓴다
+                                            var rect = new RectangleF(cx + 4, cy + 4, cardW - 8, cardH - 8);
+                                            using (var sf = new StringFormat
+                                            {
+                                                Alignment = StringAlignment.Center,
+                                                LineAlignment = StringAlignment.Center,
+                                                Trimming = StringTrimming.EllipsisCharacter
+                                            })
+                                                g.DrawString(name, fMiss, subBrush, rect, sf);
+                                        }
+                                        else
+                                        {
+                                            SizeF ms = g.MeasureString(missLabel, fMiss);
+                                            g.DrawString(missLabel, fMiss, subBrush,
+                                                cx + (cardW - ms.Width) / 2, cy + (cardH - ms.Height) / 2);
+                                        }
                                         if (!stats.Missing.Contains(slot.Id)) stats.Missing.Add(slot.Id);
                                     }
                                     g.DrawRectangle(borderPen, cx, cy, cardW - 1, cardH - 1);
@@ -433,21 +520,26 @@ namespace WindBotDeckImage
             return sec;
         }
 
-        private static Image LoadCardImage(int id, string picsFolder, Dictionary<int, Image> cache)
+        private static Image LoadCardImage(int id, List<string> picsFolders, Dictionary<int, Image> cache)
         {
             Image cached;
             if (cache.TryGetValue(id, out cached)) return cached;
 
             Image img = null;
-            if (!string.IsNullOrEmpty(picsFolder) && Directory.Exists(picsFolder))
+            if (picsFolders != null)
             {
-                string jpg = Path.Combine(picsFolder, id + ".jpg");
-                string png = Path.Combine(picsFolder, id + ".png");
-                string path = File.Exists(jpg) ? jpg : (File.Exists(png) ? png : null);
-                if (path != null)
+                foreach (string dir in picsFolders)
                 {
-                    try { img = Image.FromFile(path); }
-                    catch { img = null; }
+                    if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) continue;
+                    foreach (string ext in new[] { ".jpg", ".png", ".jpeg" })
+                    {
+                        string path = Path.Combine(dir, id + ext);
+                        if (!File.Exists(path)) continue;
+                        try { img = Image.FromFile(path); }
+                        catch { img = null; }
+                        if (img != null) break;
+                    }
+                    if (img != null) break;
                 }
             }
             cache[id] = img;   // null 도 캐시(반복 조회 방지)

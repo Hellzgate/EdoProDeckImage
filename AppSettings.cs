@@ -2,9 +2,9 @@ using System;
 using System.IO;
 using System.Text.Json;
 
-namespace WindBotDeckImage
+namespace EdoProDeckImage
 {
-    /// <summary>%LOCALAPPDATA%\WindBotDeckImage\settings.json 에 저장되는 사용자 설정.</summary>
+    /// <summary>%LOCALAPPDATA%\EdoProDeckImage\settings.json 에 저장되는 사용자 설정(쓰기 가능하면 &lt;exe&gt;\data\).</summary>
     public sealed class AppSettings
     {
         public string LastDeckPath { get; set; } = "";
@@ -21,10 +21,12 @@ namespace WindBotDeckImage
         public bool ShowSide { get; set; } = true;
         public bool NetImages { get; set; } = true;
         public string LastTitle { get; set; } = "";
+        /// <summary>창 크기 "1240x890" (2026-11-08).</summary>
+        public string WindowSize { get; set; } = "";
 
         // ── 저장 위치 ────────────────────────────────────────────
         //  1순위: exe 옆의 data\  (포터블: 폴더째 복사/이동해도 설정·캐시·로그가 따라온다)
-        //  쓰기 불가(예: Program Files)면 %LOCALAPPDATA%\WindBotDeckImage 로 폴백.
+        //  쓰기 불가(예: Program Files)면 %LOCALAPPDATA%\EdoProDeckImage 로 폴백.
         private static string _folder;
 
         public static string Folder
@@ -44,7 +46,7 @@ namespace WindBotDeckImage
                 {
                     string b = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                     if (string.IsNullOrEmpty(b)) b = Path.GetTempPath();
-                    _folder = Path.Combine(b, "WindBotDeckImage");
+                    _folder = Path.Combine(b, "EdoProDeckImage");
                 }
 
                 try { Directory.CreateDirectory(_folder); } catch { }
@@ -73,6 +75,7 @@ namespace WindBotDeckImage
             {
                 string b = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
                 if (string.IsNullOrEmpty(b)) return;
+                // 2026-11-08: 앱 이름 변경(WindBotDeckImage → EdoProDeckImage) — 예전 폴더에서 1회 옮긴다
                 string old = Path.Combine(b, "WindBotDeckImage");
                 if (string.Equals(Path.GetFullPath(old), Path.GetFullPath(newFolder), StringComparison.OrdinalIgnoreCase)) return;
 

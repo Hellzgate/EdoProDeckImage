@@ -1,5 +1,5 @@
-﻿━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  WindBot 덱 이미지 생성기  v1.1   (WindBotDeckImage.exe)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  EDOPro 덱 이미지 생성기  v1.3   (EdoProDeckImage.exe)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
  유희왕 덱 파일(.ydk)과 카드 이미지를 합쳐,
@@ -8,7 +8,7 @@
 
 ■ 1. 실행
 
-  WindBotDeckImage.exe 를 더블클릭하면 바로 실행됩니다.
+  EdoProDeckImage.exe 를 더블클릭하면 바로 실행됩니다.
   (설치 과정 없음 · .NET 런타임도 따로 필요 없음 · 단일 실행 파일)
 
 
@@ -17,10 +17,13 @@
   ①  [덱 파일 열기…] 로 .ydk 를 고릅니다.
       (또는 .ydk 파일을 창으로 끌어다 놓습니다)
 
-  ②  "카드 이미지 폴더"가 자동으로 잡힙니다.
+  ②  "이미지 폴더"가 자동으로 잡힙니다(여러 곳을 한꺼번에 찾습니다).
       자동으로 못 찾으면 [폴더 찾기…] 로 EDOPro 의 pics 폴더를 지정하세요.
-        · 보통 경로:  D:\edopro\pics
+        · 보통 경로:  D:\edopro\pics   (또는 C:\ProjectIgnis\pics)
         · 파일 이름이 <카드ID>.jpg 인 폴더라면 어디든 됩니다.
+        · 여러 폴더는 세미콜론(;)으로 이어 적을 수 있습니다.
+          예) D:\edopro\pics;C:\ProjectIgnis\pics
+      [자동 탐색] 은 찾은 폴더를 전부 채워 넣습니다.
 
   ③  왼쪽에서 옵션을 바꾸면 오른쪽 미리보기가 바로 갱신됩니다.
 
@@ -41,13 +44,32 @@
                   → 이미지가 훨씬 짧아집니다
   상단 제목 표시 / 하단 정보 표시 / 사이드 덱 포함
                   각 부분을 켜고 끕니다
-  없는 카드는 인터넷에서 받기 (v1.1, 기본 켜짐)
-                  pics 폴더에 없는 카드만 인터넷(ygoprodeck)에서 받아 캐시에 저장합니다.
+  없는 카드는 인터넷에서 받기 (기본 켜짐)
+                  pics 폴더에 없는 카드만 인터넷에서 받아 캐시에 저장합니다.
                   받는 동안 가운데에 진행률 창(이미지 내려받는 중… n / m)이 뜹니다.
-                  끄면 예전처럼 회색 ?ID 로 표시됩니다.
+                  끄면 이미지 없이 카드 이름(또는 ?ID)으로 표시됩니다.
 
 
-■ 4. 폴더 일괄 변환
+■ 4. 이미지를 찾는 순서 (v1.3)
+
+  ① 고른 이미지 폴더들 (앞 폴더가 우선) — <카드ID>.jpg / .png / .jpeg
+  ② 이미 받아 둔 캐시       — <앱 폴더>\data\imgcache
+  ③ 같은 카드 ID            — YGOPRODeck (cards → cards_small → cards_cropped)
+  ④ cdb 의 원본 ID (alias)  — 재록·다른 일러는 원본 카드 그림으로 대체
+  ⑤ cdb 의 영문 이름 검색   — YGOPRODeck 이름 검색 → 그 카드 그림
+  ⑥ Yugipedia 문서 이미지   — 마지막 수단
+  ⑦ 그래도 없으면 카드 이름(없으면 ?ID)을 칸에 표시
+
+  · ③~⑤ 가 동작하려면 EDOPro 의 카드 DB(*.cdb)가 필요합니다.
+    EDOPro 폴더(expansions\*.cdb, repositories\**\*.cdb)를 자동으로 찾아
+    **필요한 카드만** 조회하고 결과를 <앱 폴더>\data\cdb-cache.json 에 저장합니다.
+    → EDOPro 가 없는 PC 라도, 위 ⑤⑥ 로 대부분의 카드 그림을 찾습니다.
+
+  · 다운로드는 404 면 다음 후보로 넘어가고, 일시 오류는 3회 재시도합니다.
+    HTML 오류 페이지가 저장되는 일도 없습니다.
+
+
+■ 5. 폴더 일괄 변환
 
   [폴더 일괄 변환 (모든 .ydk)] 을 누르면
   선택한 폴더의 .ydk 전부를 한 번에 이미지로 만듭니다.
@@ -56,21 +78,23 @@
     · 2단계: 이미지를 저장할 폴더 선택 (기본: <원본>\deck-images)
 
   봇 덱 수십 개를 한 번에 정리할 때 편합니다.
+  (.ydk 여러 개를 창으로 끌어다 놓아도 같은 일괄 변환이 실행됩니다)
 
 
-■ 5. 명령줄(자동화) 사용
+■ 6. 명령줄(자동화) 사용
 
   창 없이 실행할 수도 있습니다.
 
-  한 덱:
-    WindBotDeckImage.exe --ydk "D:\edopro\WindBot\Decks\AI_SunGodTimeWizard.ydk" ^
-                         --out "D:\deck.png" --title "시흑양신"
+  한 덱 (--out 을 생략하면 .ydk 옆에 저장):
+    EdoProDeckImage.exe --ydk "D:\edopro\WindBot\Decks\AI_SunGodTimeWizard.ydk" ^
+                         --title "시흑양신"
 
-  폴더 전체:
-    WindBotDeckImage.exe --batch "D:\edopro\WindBot\Decks" --out "D:\deck-images"
+  폴더 전체 (--out 을 생략하면 <폴더>\deck-images):
+    EdoProDeckImage.exe --batch "D:\edopro\WindBot\Decks"
 
   옵션:
-    --pics <폴더>     카드 이미지 폴더
+    --out <경로>      결과 파일/폴더 (생략 시 위 기본값)
+    --pics <폴더>     카드 이미지 폴더 (';' 로 여러 개)
     --cols <N>        한 줄 카드 수 (기본 10)
     --cardw <N>       카드 폭 px (기본 110)
     --gap <N>         카드 간격 px (기본 5)
@@ -82,13 +106,15 @@
     --no-title / --no-footer / --no-side
     --jpg             JPG 로 저장
     --no-net          없는 카드를 인터넷에서 받지 않음
+    --no-cdb          cdb(원본 ID·이름) 폴백을 쓰지 않음
+    --version         버전 출력
     --uicheck         창 없이 화면 구성만 검사(개발용)
     --help            도움말
 
   종료 코드: 0 성공 / 1 실패
 
 
-■ 6. 알아둘 점
+■ 7. 알아둘 점
 
   · 카드 이미지는 EDOPro 가 쓰는 것과 같은 파일(pics\<카드ID>.jpg)입니다.
     177x254 픽셀이라 크게 인쇄하면 조금 흐려질 수 있습니다(원본 한계).
@@ -96,31 +122,41 @@
 
   · EDOPro 의 pics 폴더도 **필요할 때 받아 채우는** 구조라 새 카드가 빠져 있을 수
     있습니다. 그때 [없는 카드는 인터넷에서 받기] 가 켜져 있으면 자동으로 채웁니다.
-    받은 파일은 %LOCALAPPDATA%\WindBotDeckImage\imgcache 에 남습니다(다음부터 즉시).
-    ※ 커스텀/프록시 카드처럼 서버에 없는 ID 는 받지 못하고 ?ID 로 남습니다.
+    받은 파일은 <앱 폴더>\data\imgcache 에 남습니다(다음부터 즉시).
 
   · 카드 순서는 .ydk 에 적힌 순서를 그대로 따르고,
     같은 카드는 옆에 모아서 배치합니다.
 
-  · 설정(마지막 덱, 이미지 폴더, 옵션)은 다음 실행 때 그대로 이어집니다.
+  · 설정(마지막 덱, 이미지 폴더, 옵션, 창 크기)은 다음 실행 때 그대로 이어집니다.
 
-  · 저장 위치 (v1.2~): **exe 옆의 data 폴더**
+  · 저장 위치: **exe 옆의 data 폴더**
       <앱 폴더>\data\settings.json      설정
       <앱 폴더>\data\imgcache\*.jpg     인터넷에서 받은 카드 이미지
+      <앱 폴더>\data\cdb-cache.json     cdb 에서 읽은 카드 이름/원본ID 캐시
       <앱 폴더>\data\startup-error.txt  실행 오류 로그
     → 폴더째 복사/이동해도 설정·캐시가 따라옵니다(포터블).
-    → exe 가 쓰기 금지된 곳(예: Program Files)이면 %LOCALAPPDATA%\WindBotDeckImage 로 대신 저장합니다.
-    → 예전 버전(%LOCALAPPDATA%)의 설정·캐시는 첫 실행 때 자동으로 옮겨집니다.
+    → exe 가 쓰기 금지된 곳(예: Program Files)이면 %LOCALAPPDATA%\EdoProDeckImage 로 대신 저장합니다.
+    → 예전 이름(WindBotDeckImage)의 설정·캐시는 첫 실행 때 자동으로 옮겨집니다.
 
 
-■ 7. 삭제
+■ 8. 삭제
 
   이 폴더를 통째로 지우면 끝입니다.
   (위의 설정·캐시 폴더는 남아 있어도 무해하며, 지워도 됩니다)
 
 
-■ 8. 버전
+■ 9. 버전
 
+  v1.3 (2026-11-08)  ← 이름 변경: WindBotDeckImage → EdoProDeckImage
+    · 이미지 폴더를 **여러 개** 지원(; 구분 · 자동 탐색은 찾은 폴더 전부)
+    · cdb 의 **원본 ID(alias)** · **영문 이름** 으로 그림 찾기 (커스텀·재록 카드)
+    · Yugipedia 마지막 폴백 · 404/HTML 오류 처리 · 3회 재시도
+    · 이미지가 없으면 카드 **이름**을 칸에 표시(예전엔 ?ID)
+    · --out 생략 가능(.ydk 옆 / <폴더>\deck-images) · --version · --no-cdb
+    · .ydk 여러 개를 끌어다 놓으면 일괄 변환 · 창 크기 기억
+    · cdb 조회 결과 캐시(<data>\cdb-cache.json)
+  v1.2 (2026-11-07)
+    · 다크 테마 정리 · 이미지 없음 안내 개선 · 설정 위치를 exe 옆 data 로
   v1.1 (2026-11-04)
     · 카드 이미지 캐시 재사용 — 옵션을 바꿔도 다시 읽지 않아 빠릅니다
     · pics 에 없는 카드는 인터넷에서 자동으로 받아 캐시(진행률 창 표시)

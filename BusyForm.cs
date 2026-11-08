@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
 
-namespace WindBotDeckImage
+namespace EdoProDeckImage
 {
     /// <summary>다운로드/압축 해제 진행률을 보여주는 작은 창(모달 아님, 가운데 표시).</summary>
     public sealed class BusyForm : Form
