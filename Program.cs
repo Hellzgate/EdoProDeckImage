@@ -89,7 +89,7 @@ namespace EdoProDeckImage
                     if (v != null) return v.Major + "." + v.Minor + "." + v.Build;
                 }
                 catch { }
-                return "1.3.0";
+                return "1.3.1";
             }
         }
 

@@ -303,13 +303,46 @@ namespace EdoProDeckImage
             float footPt = Math.Max(6.5f, cardW / 12.0f);
             float missPt = Math.Max(6f, cardW / 13.0f);
 
+            // ── 제목 텍스트·크기 결정 (2026-11-08 수정) ───────────────
+            //   이전: o.Title(보통 빈 문자열)을 재서 높이 0 → 밴드가 22px 로 작아져
+            //         실제로 그리는 "덱 파일명" 제목의 **아랫부분이 섹션 헤더에 가려졌다**.
+            //   지금: 실제로 그릴 텍스트를 먼저 정하고, 폭을 넘으면 글자를 줄인다(최소 11pt).
+            string titleText = o.Title;
+            if (string.IsNullOrEmpty(titleText)) titleText = Path.GetFileNameWithoutExtension(deck.FilePath);
+            if (string.IsNullOrEmpty(titleText)) titleText = "Deck";
+
+            int gridWTitle = cols * cardW + (cols - 1) * gap;
+            float titlePtUse = titlePt;
+            if (o.ShowTitle)
+            {
+                try
+                {
+                    using (var probe0 = new Bitmap(1, 1))
+                    using (var pg0 = Graphics.FromImage(probe0))
+                    {
+                        while (titlePtUse > 11f)
+                        {
+                            using (var t0 = new Font("Malgun Gothic", titlePtUse, FontStyle.Bold))
+                            {
+                                if (pg0.MeasureString(titleText, t0).Width <= gridWTitle - 6) break;
+                            }
+                            titlePtUse -= 1f;
+                        }
+                    }
+                }
+                catch { }
+            }
+
             using (var probe = new Bitmap(1, 1))
             using (var pg = Graphics.FromImage(probe))
-            using (var fT = new Font("Malgun Gothic", titlePt, FontStyle.Bold))
+            using (var fT = new Font("Malgun Gothic", titlePtUse, FontStyle.Bold))
             using (var fH = new Font("Malgun Gothic", hdrPt, FontStyle.Bold))
             using (var fF = new Font("Malgun Gothic", footPt))
             {
-                SizeF szT = pg.MeasureString(o.Title ?? "", fT);
+                SizeF szT = pg.MeasureString(titleText, fT);
+                if (o.ShowTitle && szT.Width > gridWTitle - 6)
+                    titleText = FitText(pg, titleText, fT, gridWTitle - 6);   // 그래도 넘으면 … 처리
+                szT = pg.MeasureString(titleText, fT);
                 SizeF szH = pg.MeasureString("메인 덱 : 43장", fH);
                 SizeF szF = pg.MeasureString("M", fF);
 
@@ -361,7 +394,7 @@ namespace EdoProDeckImage
                     using (var subBrush = new SolidBrush(th.SubText))
                     using (var missBrush = new SolidBrush(th.Missing))
                     using (var borderPen = new Pen(th.CardBorder, 1f))
-                    using (var fTitle = new Font("Malgun Gothic", titlePt, FontStyle.Bold))
+                    using (var fTitle = new Font("Malgun Gothic", titlePtUse, FontStyle.Bold))
                     using (var fHdr = new Font("Malgun Gothic", hdrPt, FontStyle.Bold))
                     using (var fFoot = new Font("Malgun Gothic", footPt))
                     using (var fMiss = new Font("Malgun Gothic", missPt, FontStyle.Bold))
@@ -371,10 +404,7 @@ namespace EdoProDeckImage
                         {
                             g.FillRectangle(bandBrush, 0, 0, width, bandH - 3);
                             g.FillRectangle(accBrush, 0, bandH - 3, width, 3);
-                            string title = o.Title;
-                            if (string.IsNullOrEmpty(title)) title = Path.GetFileNameWithoutExtension(deck.FilePath);
-                            if (string.IsNullOrEmpty(title)) title = "Deck";
-                            g.DrawString(title, fTitle, textBrush, pad, (bandH - 3 - titleTextH) / 2);
+                            g.DrawString(titleText, fTitle, textBrush, pad, (bandH - 3 - titleTextH) / 2);
                         }
 
                         int y = bandH;
@@ -461,7 +491,8 @@ namespace EdoProDeckImage
                                     DateTime.Now.ToString("yyyy-MM-dd HH:mm"));
                                 if (!string.IsNullOrEmpty(o.FooterNote)) foot += "  ·  " + o.FooterNote;
                                 if (stats.Missing.Count > 0) foot += string.Format("  ·  이미지 없음 {0}장", stats.Missing.Count);
-                                g.DrawString(foot, fFoot, subBrush, pad, fy + 4);
+                                // 푸터도 폭을 넘으면 … 로 자른다(예전엔 그대로 그려 오른쪽이 잘렸다)
+                                g.DrawString(FitText(g, foot, fFoot, width - pad * 2), fFoot, subBrush, pad, fy + 4);
                             }
                         }
                         finally
@@ -518,6 +549,28 @@ namespace EdoProDeckImage
             }
             sec.Placeables = sec.Slots.Count;
             return sec;
+        }
+
+        /// <summary>폭을 넘으면 글자를 … 로 자른다(한글 기준, 이진 탐색).</summary>
+        private static string FitText(Graphics g, string text, Font font, float maxWidth)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            try
+            {
+                if (maxWidth <= 8) return "";
+                if (g.MeasureString(text, font).Width <= maxWidth) return text;
+                const string ell = "…";
+                int lo = 0, hi = text.Length;
+                while (lo < hi)
+                {
+                    int mid = (lo + hi + 1) / 2;
+                    string cut = text.Substring(0, mid).TrimEnd() + ell;
+                    if (g.MeasureString(cut, font).Width <= maxWidth) lo = mid;
+                    else hi = mid - 1;
+                }
+                return text.Substring(0, Math.Max(1, lo)).TrimEnd() + ell;
+            }
+            catch { return text; }
         }
 
         private static Image LoadCardImage(int id, List<string> picsFolders, Dictionary<int, Image> cache)
