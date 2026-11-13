@@ -67,7 +67,6 @@ namespace EdoProDeckImage
             TryLoadInitialDeck();
         }
 
-        // ══════════════════════════════════════════════════════
         //  UI 구성
         // ══════════════════════════════════════════════════════
         private void BuildUi()
@@ -203,6 +202,9 @@ namespace EdoProDeckImage
             CmbFormat.SelectedIndexChanged += delegate { UpdateStatus(); };
         }
 
+        [System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        private static extern int SetWindowTheme(IntPtr hWnd, string pszSubAppName, string pszSubIdList);
+
         private static NumericUpDown Num(int min, int max, int val)
         {
             var n = new NumericUpDown
@@ -216,7 +218,10 @@ namespace EdoProDeckImage
                 ForeColor = UiFg,
                 BorderStyle = BorderStyle.FixedSingle   // ⚠ NumericUpDown 은 BorderStyle 이 없으면 흰 배경
             };
-            n.HandleCreated += delegate { n.BackColor = UiBox; n.ForeColor = UiFg; };
+            n.HandleCreated += delegate
+            {
+                try { n.BackColor = UiBox; n.ForeColor = UiFg; } catch { }
+            };
             return n;
         }
 
